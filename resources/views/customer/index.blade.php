@@ -43,8 +43,8 @@
                 @foreach($schedules as $schedule)
                 <div class="bg-white rounded-xl shadow-sm border overflow-hidden flex flex-col justify-between">
                     <div>
-                        @if($schedule->movie->poster)
-                            <img src="{{ asset('storage/' . $schedule->movie->poster) }}" alt="{{ $schedule->movie->title }}" class="w-full h-48 object-cover">
+                        @if($schedule->movie->image)
+                            <img src="{{ asset('storage/' . $schedule->movie->image) }}" alt="{{ $schedule->movie->title }}" class="w-full h-48 object-cover">
                         @else
                             <div class="bg-gray-200 h-48 flex items-center justify-center text-gray-400 font-medium">Poster Tidak Tersedia</div>
                         @endif

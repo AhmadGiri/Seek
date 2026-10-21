@@ -2,81 +2,148 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Schedule;
+use App\Models\Customer;
 use App\Models\Order;
 use App\Models\OrderDetail;
+use App\Models\Schedule;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Exception;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class OrderController extends Controller
 {
-    // Katalog Jadwal untuk Customer
-    public function index() {
-        $schedules = Schedule::with(['movie', 'ticketPrice'])->get();
+    public function index()
+    {
+        $schedules = Schedule::with(['movie', 'ticketPrice'])
+            ->where('show_time', '>=', now())
+            ->orderBy('show_time')
+            ->get();
+
         return view('customer.index', compact('schedules'));
     }
 
-    // Proses Checkout Pesanan Tiket (Multi-tabel dengan DB Transaction)
-    public function store(Request $request) {
-        $request->validate([
+    public function store(Request $request)
+    {
+        $data = $request->validate([
             'customer_name' => 'required|string|max:255',
             'customer_email' => 'required|email|max:255',
             'tickets' => 'required|array',
-            'tickets.*' => 'nullable|integer|min:0',
+            'tickets.*' => 'nullable|integer|min:0|max:20',
         ]);
 
-        $orderedTickets = array_filter($request->tickets, fn($qty) => $qty > 0);
-        if (empty($orderedTickets)) {
-            return back()->with('error', 'Pilih minimal satu tiket film!');
+        $tickets = array_filter(
+            $data['tickets'],
+            fn ($quantity) => (int) $quantity > 0
+        );
+
+        if (empty($tickets)) {
+            return back()
+                ->withInput()
+                ->with('error', 'Pilih minimal satu tiket.');
         }
 
-        DB::beginTransaction();
-        try {
+        DB::transaction(function () use ($data, $tickets) {
+            Customer::updateOrCreate(
+                ['email' => $data['customer_email']],
+                [
+                    'name' => $data['customer_name'],
+                    'phone' => '-',
+                    'address' => null,
+                ]
+            );
+
             $order = Order::create([
-                'customer_name' => $request->customer_name,
-                'customer_email' => $request->customer_email,
+                'customer_name' => $data['customer_name'],
+                'customer_email' => $data['customer_email'],
                 'total_price' => 0,
-                'status' => 'Pending',
+                'status' => 'pending',
             ]);
 
-            $totalPrice = 0;
+            $total = 0;
 
-            foreach ($orderedTickets as $scheduleId => $quantity) {
-                $schedule = Schedule::with('ticketPrice')->findOrFail($scheduleId);
-                $subtotal = $schedule->ticketPrice->price * $quantity;
-                $totalPrice += $subtotal;
+            foreach ($tickets as $scheduleId => $quantity) {
+                $schedule = Schedule::with('ticketPrice')
+                    ->findOrFail($scheduleId);
+
+                if ($schedule->show_time < now()) {
+                    throw ValidationException::withMessages([
+                        'tickets' => 'Jadwal sudah lewat.',
+                    ]);
+                }
+
+                $subtotal = $schedule->ticketPrice->price
+                    * (int) $quantity;
+
+                $total += $subtotal;
 
                 OrderDetail::create([
                     'order_id' => $order->id,
                     'schedule_id' => $schedule->id,
-                    'quantity' => $quantity,
+                    'quantity' => (int) $quantity,
                     'subtotal' => $subtotal,
                 ]);
             }
 
-            $order->update(['total_price' => $totalPrice]);
-            DB::commit();
+            $order->update([
+                'total_price' => $total,
+            ]);
+        });
 
-            return redirect()->route('customer.index')->with('success', 'Pesanan tiket berhasil dibuat! ID Transaksi: #' . $order->id);
-        } catch (Exception $e) {
-            DB::rollBack();
-            return back()->with('error', 'Gagal memproses pesanan: ' . $e->getMessage());
-        }
+        return redirect()
+            ->route('customer.index')
+            ->with(
+                'success',
+                'Pesanan berhasil dibuat. Silakan simpan nama dan email untuk konfirmasi.'
+            );
     }
 
-    // Dashboard Admin: Rekap Pesanan Masuk
-    public function adminDashboard() {
-        $orders = Order::with(['orderDetails.schedule.movie', 'orderDetails.schedule.ticketPrice'])->latest()->get();
+    public function adminDashboard(Request $request)
+    {
+        $query = Order::with([
+            'orderDetails.schedule.movie',
+            'orderDetails.schedule.ticketPrice',
+        ])->latest();
+
+        if ($request->filled('from')) {
+            $query->whereDate(
+                'created_at',
+                '>=',
+                $request->date('from')
+            );
+        }
+
+        if ($request->filled('to')) {
+            $query->whereDate(
+                'created_at',
+                '<=',
+                $request->date('to')
+            );
+        }
+
+        $orders = $query->get();
+
         return view('dashboard', compact('orders'));
     }
 
-    // Update Status Pesanan / Pembayaran oleh Admin
-    public function updateStatus(Request $request, $id) {
-        $request->validate(['status' => 'required|string']);
-        $order = Order::findOrFail($id);
-        $order->update(['status' => $request->status]);
+    public function updateStatus(Request $request, $id)
+    {
+        $data = $request->validate([
+            'status' => [
+                'required',
+                Rule::in([
+                    'pending',
+                    'completed',
+                    'cancelled',
+                ]),
+            ],
+        ]);
 
-        return back()->with('success', "Status pesanan #{$order->id} berhasil diperbarui!");
+        Order::findOrFail($id)->update($data);
+
+        return back()->with(
+            'success',
+            'Status pesanan diperbarui.'
+        );
     }
 }

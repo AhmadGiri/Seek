@@ -2,48 +2,91 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Movie;
+use App\Models\Schedule;
 use App\Models\TicketPrice;
 use Illuminate\Http\Request;
 
-class TicketPriceController extends Controller
+class ScheduleController extends Controller
 {
-    public function index() {
-        $prices = TicketPrice::latest()->paginate(10);
-        return view('admin.ticket_prices.index', compact('prices'));
+    public function index()
+    {
+        $schedules = Schedule::with(['movie', 'ticketPrice'])
+            ->latest()
+            ->paginate(10);
+
+        return view(
+            'admin.schedules.index',
+            compact('schedules')
+        );
     }
 
-    public function create() {
-        return view('admin.ticket_prices.create');
+    public function create()
+    {
+        $movies = Movie::all();
+        $prices = TicketPrice::all();
+        $schedule = new Schedule();
+
+        return view(
+            'admin.schedules.form',
+            compact('movies', 'prices', 'schedule')
+        );
     }
 
-    public function store(Request $request) {
-        $request->validate([
-            'category_day' => 'required|string|max:255',
-            'price' => 'required|integer|min:0',
+    public function store(Request $request)
+    {
+        $data = $request->validate([
+            'movie_id' => 'required|exists:movies,id',
+            'ticket_price_id' => 'required|exists:ticket_prices,id',
+            'show_time' => 'required|date',
+            'studio' => 'required|string|max:100',
         ]);
 
-        TicketPrice::create($request->all());
+        Schedule::create($data);
 
-        return redirect()->route('ticket-prices.index')->with('success', 'Data harga tiket berhasil ditambahkan!');
+        return redirect()
+            ->route('schedules.index')
+            ->with('success', 'Jadwal ditambahkan.');
     }
 
-    public function edit(TicketPrice $ticketPrice) {
-        return view('admin.ticket_prices.edit', compact('ticketPrice'));
+    public function show(Schedule $schedule)
+    {
+        return redirect()->route('schedules.index');
     }
 
-    public function update(Request $request, TicketPrice $ticketPrice) {
-        $request->validate([
-            'category_day' => 'required|string|max:255',
-            'price' => 'required|integer|min:0',
+    public function edit(Schedule $schedule)
+    {
+        $movies = Movie::all();
+        $prices = TicketPrice::all();
+
+        return view(
+            'admin.schedules.form',
+            compact('movies', 'prices', 'schedule')
+        );
+    }
+
+    public function update(Request $request, Schedule $schedule)
+    {
+        $data = $request->validate([
+            'movie_id' => 'required|exists:movies,id',
+            'ticket_price_id' => 'required|exists:ticket_prices,id',
+            'show_time' => 'required|date',
+            'studio' => 'required|string|max:100',
         ]);
 
-        $ticketPrice->update($request->all());
+        $schedule->update($data);
 
-        return redirect()->route('ticket-prices.index')->with('success', 'Data harga tiket berhasil diperbarui!');
+        return redirect()
+            ->route('schedules.index')
+            ->with('success', 'Jadwal diperbarui.');
     }
 
-    public function destroy(TicketPrice $ticketPrice) {
-        $ticketPrice->delete();
-        return redirect()->route('ticket-prices.index')->with('success', 'Data harga tiket berhasil dihapus!');
+    public function destroy(Schedule $schedule)
+    {
+        $schedule->delete();
+
+        return redirect()
+            ->route('schedules.index')
+            ->with('success', 'Jadwal dihapus.');
     }
 }

@@ -1,35 +1,58 @@
 <?php
 
-use Illuminate\Support\Facades\Route;
-use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\MovieController;
-use App\Http\Controllers\TicketPriceController;
-use App\Http\Controllers\ScheduleController;
 use App\Http\Controllers\OrderController;
+use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\ScheduleController;
+use App\Http\Controllers\TicketPriceController;
+use Illuminate\Support\Facades\Route;
 
-// 1. Sisi Customer (Publik)
-Route::get('/', [OrderController::class, 'index'])->name('customer.index');
-Route::post('/checkout', [OrderController::class, 'store'])->name('customer.checkout');
+// Halaman customer
+Route::get('/', [OrderController::class, 'index'])
+    ->name('customer.index');
 
-// 2. Dashboard Utama Admin (Bawaan Breeze yang diarahkan ke Rekap Pesanan)
-Route::get('/dashboard', [OrderController::class, 'adminDashboard'])
-    ->middleware(['auth', 'verified'])
-    ->name('dashboard');
+Route::post('/checkout', [OrderController::class, 'store'])
+    ->name('customer.checkout');
 
-// 3. Grup Route Terproteksi (Admin)
+// Halaman admin
+Route::middleware(['auth', 'role:admin'])
+    ->prefix('admin')
+    ->group(function () {
+        Route::get('/dashboard', [
+            OrderController::class,
+            'adminDashboard',
+        ])->name('admin.dashboard');
+
+        Route::patch('/orders/{id}/status', [
+            OrderController::class,
+            'updateStatus',
+        ])->name('admin.orders.updateStatus');
+
+        Route::resource('movies', MovieController::class);
+
+        Route::resource('ticket-prices', TicketPriceController::class);
+
+        Route::resource('schedules', ScheduleController::class);
+    });
+
+// Halaman yang memerlukan autentikasi
 Route::middleware('auth')->group(function () {
-    Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
-    Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
-    Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
+    Route::get('/dashboard', function () {
+        return auth()->user()->role === 'admin'
+            ? redirect()->route('admin.dashboard')
+            : redirect()->route('customer.index');
+    })->name('dashboard');
 
-    // Alias Admin Dashboard & Update Status Pesanan
-    Route::get('/admin/dashboard', [OrderController::class, 'adminDashboard'])->name('admin.dashboard');
-    Route::patch('/admin/orders/{id}/status', [OrderController::class, 'updateStatus'])->name('admin.orders.updateStatus');
+    // Profil pengguna
+    Route::get('/profile', [ProfileController::class, 'edit'])
+        ->name('profile.edit');
 
-    // Resource CRUD Master Data Bioskop
-    Route::resource('/admin/movies', MovieController::class);
-    Route::resource('/admin/ticket-prices', TicketPriceController::class);
-    Route::resource('/admin/schedules', ScheduleController::class);
+    Route::patch('/profile', [ProfileController::class, 'update'])
+        ->name('profile.update');
+
+    Route::delete('/profile', [ProfileController::class, 'destroy'])
+        ->name('profile.destroy');
 });
 
-require __DIR__.'/auth.php';
+// Route autentikasi bawaan
+require __DIR__ . '/auth.php';
